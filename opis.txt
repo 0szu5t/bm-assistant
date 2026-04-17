@@ -1,0 +1,49 @@
+Robot "BM Assistant" to wielofunkcyjny asystent który może poruszać się za pomocą silinków DC oraz jest zasilany przez mikrokontroller ESP32 który jest bazą całego projektu.
+Asystent łączy się z serwerem poprzez sieć Wi-Fi przez to serwer można kontrolować ruchy robota.
+ponadto asystent jest wysposażony w AI (przez serwer) który działa za pomocą NVIDIA API.
+przez połączenie robota z sztuczną inteligencją można sterować nim za pomocą poleceń wpisywanych w polu tekstowym.
+Robot może również odpowadać za pytania które się mu zada poprzez pole tekstowe na serwerze.
+Budowa robota:
+Fundamentem robota jest podwozie wyposażone w dwie osie kół, zaprojektowane z myślą o prostocie konstrukcji oraz efektywności ruchu. Tylna oś pełni funkcję napędową — zamontowany na niej silnik prądu stałego (DC) wprawia w ruch tylne koła, co umożliwia poruszanie się robota do przodu i do tyłu. Przednia oś odpowiada natomiast za zmianę kierunku jazdy, działając jako mechanizm skrętny. Dzięki temu robot może wykonywać manewry skrętu w lewo i w prawo, co w połączeniu z napędem tylnej osi pozwala na swobodne przemieszczanie się w przestrzeni.
+Pojazd zasilany jest zestawem akumulatorów, które dostarczają łącznie napięcie 7,4 V. Energia ta trafia bezpośrednio do przetwornicy DC-DC, której zadaniem jest stabilizacja napięcia do poziomu 5 V. Tak przygotowane zasilanie wykorzystywane jest przez kluczowe komponenty elektroniczne robota, takie jak mikrokontroler ESP32, wyświetlacz OLED o rozdzielczości 128×64 pikseli oraz wzmacniacz audio klasy D wraz z głośnikiem. Stabilne napięcie jest niezwykle istotne dla poprawnego działania tych modułów, ponieważ eliminuje ryzyko zakłóceń, resetów systemu czy uszkodzeń wynikających z wahań napięcia.
+Mostek H (L298N), odpowiedzialny za sterowanie silnikami, zasilany jest bezpośrednio z koszyka z akumulatorami poprzez dedykowany pin 12 V (wejście zasilania silników). Takie rozwiązanie zapewnia silnikom odpowiednie napięcie oraz wystarczającą moc do pracy, niezależnie od pozostałych elementów systemu. Moduł ten jest połączony z mikrokontrolerem ESP32, który steruje jego pracą poprzez odpowiednie sygnały logiczne. Dzięki temu możliwe jest precyzyjne kontrolowanie kierunku obrotów silników oraz ich prędkości, co w praktyce pozwala na płynne sterowanie ruchem robota mimo wykorzystania stosunkowo prostych silników DC.
+Na górnej części konstrukcji, czyli „grzbiecie” robota, umieszczony został wyświetlacz OLED o rozdzielczości 128×64 pikseli. Pełni on funkcję informacyjną oraz wizualną — wyświetla istotne dane dotyczące stanu połączenia z serwerem, komunikaty systemowe, a także prostą, animowaną „twarz” robota, która zwiększa jego interaktywność i nadaje mu bardziej przyjazny charakter. Dzięki temu użytkownik może w łatwy sposób monitorować aktualny stan urządzenia oraz odbierać informacje zwrotne.
+Dodatkowo robot został wyposażony w funkcję generowania dźwięku, która pozwala na nadanie „głosu” modelowi AI. Sygnał audio generowany jest przez mikrokontroler ESP32 i wyprowadzany przez pin D25, a następnie trafia do wzmacniacza PAM8403 — wydajnego modułu klasy D, który zapewnia odpowiednią głośność oraz jakość odtwarzanego dźwięku. Wzmacniacz zasila podłączony głośnik, dzięki czemu robot może emitować komunikaty głosowe, odpowiedzi generowane przez model AI lub inne sygnały dźwiękowe. Takie rozwiązanie znacząco zwiększa możliwości interakcji z użytkownikiem, czyniąc robota bardziej funkcjonalnym i angażującym.
+
+Oprogramowanie projektu dostępne jest publicznie na platformie GitHub na licencji open-source. 
+
+
+Użyte bliboteki
+WebSockets (Links2004) — obsługa protokołu Socket.IO
+ArduinoJson — parsowanie komunikatów JSON
+Adafruit SSD1306 + Adafruit GFX — sterowanie wyświetlaczem OLED
+
+Główne funkcje programu odpowiadają za sterowanie urządzeniem oraz komunikację z użytkownikiem i systemem zewnętrznym.
+Funkcja updateDisplay(String) służy do aktualizowania informacji wyświetlanych na ekranie OLED, a jednocześnie przesyła te same dane do monitora szeregowego (Serial Monitor), co ułatwia debugowanie i podgląd działania programu.
+Funkcja playBeep() generuje krótki sygnał dźwiękowy, który pełni rolę potwierdzenia wykonania określonej akcji, na przykład odebrania komendy.
+Funkcje moveForward() oraz moveBackward() odpowiadają za sterowanie ruchem robota lub pojazdu w przód i w tył, kontrolując odpowiednio silniki napędowe.
+Funkcje turnLeft() i turnRight() zajmują się sterowaniem skrętem, czyli zmianą kierunku jazdy poprzez odpowiednie ustawienie osi skrętnej lub różnicowanie pracy silników.
+Funkcja stopMotors() zatrzymuje wszystkie silniki, co pozwala natychmiast przerwać ruch urządzenia.
+Natomiast socketIOEvent(...) to główna funkcja obsługująca zdarzenia z Socket.IO — odpowiada za odbieranie i przetwarzanie komunikatów z sieci, dzięki czemu możliwe jest zdalne sterowanie lub komunikacja z innymi systemami.
+
+Firmware nasłuchuje dwóch typów zdarzeń emitowanych przez serwer: robot_command (wykonuje odpowiednią funkcję ruchu) oraz chat_response (wyświetla odpowiedź tekstową na OLED).
+Serwer zbudowany jest w oparciu o framework Flask z rozszerzeniem Flask-SocketIO. Integracja z modelem LLM realizowana jest przy użyciu klasy OpenAI skonfigurowanej do korzystania z infrastruktury NVIDIA (base_url = "https://integrate.api.nvidia.com/v1"), a klucz API pobierany jest ze zmiennej środowiskowej NVIDIA_API_KEY.
+
+
+
+
+
+
+
+Logika przetwarzania poleceń AI: po otrzymaniu wiadomości użytkownika serwer przekazuje ją do modelu LLM, który zwraca odpowiedź w formacie JSON z polem type. Jeśli type == 'command', serwer emituje zdarzenie robot_command do ESP32; jeśli type == 'chat', emituje chat_response z treścią do wyświetlenia.
+
+Konfiguracja
+wymagania
+Konto NVIDIA Developer z wygenerowanym kluczem API
+Python 3.8+ z obsługą środowisk wirtualnych (venv)
+Arduino IDE z zainstalowanym wsparciem dla płytki ESP32
+Biblioteki Arduino wymienione w pliku robot/biblioteki.txt
+Kolejnym krokiem jest uzupełnienie zmiennych w pliku .env
+
+Następnie należy uruchomić serwer.
+Po poprawnym uruchomieniu serwer dostępny jest lokalnie pod adresem http://localhost:5000. Pełna instrukcja konfiguracji znajduje się w pliku README.md w repozytorium projektu.

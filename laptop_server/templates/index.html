@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="pl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Robota ESP-32</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            flex-direction: column;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        h1 {
+            background: linear-gradient(90deg, #38bdf8, #818cf8);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            font-weight: 600;
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 700px;
+            background-color: #1e293b;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .messages-box {
+            background-color: #0f172a;
+            border-radius: 8px;
+            padding: 1rem;
+            min-height: 300px;
+            max-height: 500px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .message {
+            padding: 10px 15px;
+            border-radius: 8px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+
+        .message.user {
+            background-color: #3b82f6;
+            align-self: flex-end;
+            border-bottom-right-radius: 0;
+        }
+
+        .message.bot {
+            background-color: #475569;
+            align-self: flex-start;
+            border-bottom-left-radius: 0;
+        }
+
+        .message.system {
+            background-color: #334155;
+            align-self: center;
+            font-size: 0.85em;
+            color: #94a3b8;
+            border-radius: 20px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            background-color: #0f172a;
+            color: #f8fafc;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus {
+            border-color: #38bdf8;
+        }
+
+        button {
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: none;
+            background: linear-gradient(90deg, #3b82f6, #6366f1);
+            color: white;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: transform 0.1s, opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        .controls-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.5rem;
+            max-width: 180px;
+            margin: 0 auto;
+        }
+
+        .controls-container button {
+            padding: 15px;
+            font-size: 1.5rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #334155;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+
+        .controls-container button:hover {
+            background-color: #475569;
+            opacity: 1;
+        }
+
+        .control-up {
+            grid-column: 2;
+        }
+
+        .control-left {
+            grid-column: 1;
+        }
+
+        .control-down {
+            grid-column: 2;
+        }
+
+        .control-right {
+            grid-column: 3;
+        }
+
+        /* Mobile optimization */
+        @media (max-width: 600px) {
+            body {
+                padding: 1rem;
+            }
+
+            .chat-container {
+                padding: 1.2rem;
+            }
+
+            .messages-box {
+                min-height: 250px;
+            }
+
+            h1 {
+                font-size: 1.8rem;
+                margin-bottom: 1rem;
+            }
+
+            .input-group {
+                flex-direction: column;
+            }
+
+            button {
+                width: 100%;
+            }
+
+            .controls-container button {
+                width: auto;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Robot esp-32 sterowanie</h1>
+
+    <div class="chat-container">
+        <!-- Konsola wiadomości -->
+        <div class="messages-box" id="messages-box">
+            <div class="message system">Oczekiwanie na zainicjowanie komunikacji...</div>
+        </div>
+
+        <!-- Strzałki (domyślnie widoczne) -->
+        <div class="controls-container" id="dpad-container">
+            <div></div>
+            <button class="control-btn control-up" data-cmd="F">⬆️</button>
+            <div></div>
+            <button class="control-btn control-left" data-cmd="L">⬅️</button>
+            <button class="control-btn control-down" data-cmd="B">⬇️</button>
+            <button class="control-btn control-right" data-cmd="R">➡️</button>
+        </div>
+
+        <!-- Ukryty wirtualny joystick -->
+        <div id="joystick-container" style="display: none; height: 180px; position: relative; margin: 0 auto; width: 100%; max-width: 250px;">
+            <div id="joystick-zone" style="width: 100%; height: 100%;"></div>
+        </div>
+
+        <div style="text-align: center;">
+            <button id="toggle-joystick-btn" style="padding: 10px 18px; font-size: 0.9rem;">Zmień na Joystick</button>
+        </div>
+
+        <!-- Prompt AI -->
+        <div class="input-group">
+            <input type="text" id="prompt-input" placeholder="Wpisz komendę dla SI..." autocomplete="off">
+            <button id="send-btn">Wyślij</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+
+    <script>
+        const promptInput = document.getElementById('prompt-input');
+        const sendBtn = document.getElementById('send-btn');
+        const messagesBox = document.getElementById('messages-box');
+        
+        const dpadContainer = document.getElementById('dpad-container');
+        const joystickContainer = document.getElementById('joystick-container');
+        const toggleBtn = document.getElementById('toggle-joystick-btn');
+        
+        let ws;
+
+        function addMessage(text, role) {
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            div.textContent = text;
+            messagesBox.appendChild(div);
+            messagesBox.scrollTop = messagesBox.scrollHeight;
+        }
+
+        // --- Inicjalizacja WebSockets zamiast Socket.IO ---
+        function connect() {
+            const protocol = location.protocol === "https:" ? "wss://" : "ws://";
+            ws = new WebSocket(protocol + location.host + "/ws_client");
+
+            ws.onopen = () => {
+                addMessage("Połączono z kanałem na żywo WebSockets!", 'system');
+            };
+
+            ws.onclose = () => {
+                addMessage("Rozłączono z serwerem! Próba... ", 'system');
+                setTimeout(connect, 3000);
+            };
+
+            ws.onerror = (e) => {
+                ws.close();
+            }
+        }
+        
+        connect();
+
+        function sendCmd(cmd) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(cmd);
+            }
+        }
+
+        // --- Obsługa Strzałek D-pad ---
+        document.querySelectorAll('.control-btn').forEach(btn => {
+            const cmd = btn.getAttribute('data-cmd');
+
+            const press = (e) => {
+                e.preventDefault();
+                btn.style.backgroundColor = "#475569";
+                sendCmd(cmd);
+            };
+            const release = (e) => {
+                e.preventDefault();
+                btn.style.backgroundColor = "#334155";
+                sendCmd('S'); 
+            };
+
+            btn.addEventListener('touchstart', press, { passive: false });
+            btn.addEventListener('touchend', release, { passive: false });
+            btn.addEventListener('touchcancel', release, { passive: false });
+
+            btn.addEventListener('mousedown', press);
+            btn.addEventListener('mouseup', release);
+            btn.addEventListener('mouseleave', release);
+        });
+
+        // --- Obsługa Wyświetlania ---
+        let joystickActive = false;
+        toggleBtn.addEventListener('click', () => {
+            joystickActive = !joystickActive;
+            if (joystickActive) {
+                dpadContainer.style.display = 'none';
+                joystickContainer.style.display = 'block';
+                toggleBtn.textContent = 'Zmień na Strzałki';
+            } else {
+                dpadContainer.style.display = 'grid';
+                joystickContainer.style.display = 'none';
+                toggleBtn.textContent = 'Zmień na Joystick';
+            }
+        });
+
+        // --- Inicjalizacja Joysticka NippleJS ---
+        const manager = nipplejs.create({
+            zone: document.getElementById('joystick-zone'),
+            mode: 'dynamic',
+            color: '#3b82f6',
+            size: 140
+        });
+
+        let currentDirection = null;
+
+        manager.on('dir:up', () => sendCmd('F'));
+        manager.on('dir:down', () => sendCmd('B'));
+        manager.on('dir:left', () => sendCmd('L'));
+        manager.on('dir:right', () => sendCmd('R'));
+        manager.on('end', () => sendCmd('S'));
+
+        // --- Obsługa Promptów NVIDIA ---
+        async function sendPrompt() {
+            const text = promptInput.value.trim();
+            if (!text) return;
+
+            addMessage(text, 'user');
+            promptInput.value = '';
+
+            addMessage("NVIDIA API myśli...", 'system');
+
+            try {
+                const res = await fetch('/api/nvidia', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: text })
+                });
+                const data = await res.json();
+
+                if (data.status === "error") {
+                    addMessage("Błąd API: " + data.message, 'bot');
+                } else if (data.status === "success") {
+                    addMessage("Sukces! Robot przejął sekwencję kroków.", 'bot');
+                } else {
+                    addMessage(JSON.stringify(data), 'bot');
+                }
+            } catch (err) {
+                addMessage("Błąd połączenia z lokalnym serwerem.", 'system');
+            }
+        }
+
+        sendBtn.addEventListener('click', sendPrompt);
+        promptInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendPrompt();
+        });
+    </script>
+    <footer>
+        <div style="text-align: center; color: #94a3b8; font-size: 0.8rem; margin-top: 1rem;">
+            ©️ 2026 by BLC - Robot esp-32 sterowanie
+        </div>
+    </footer>
+</body>
+
+</html>
