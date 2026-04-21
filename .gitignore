@@ -1,6 +1,6 @@
 .env
 
-laptop_server/venv/
+laptop_server/.venv/
 laptop_server/__pycache__/
 *.pyc
 *.pyo

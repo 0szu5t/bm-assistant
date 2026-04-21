@@ -4,14 +4,34 @@ import threading
 import time
 import os
 import requests
+import socket
 from dotenv import load_dotenv
 
 load_dotenv()
 
+def udp_beacon():
+    """Rozsyła w sieci informację o serwerze (Broadcast UDP) co 2 sekundy"""
+    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    while True:
+        try:
+            udp_socket.sendto(b"ROBOT_SERVER", ("<broadcast>", 5555))
+        except Exception:
+            pass
+        time.sleep(2)
+
 app = Flask(__name__)
 sock = Sock(app)
 
-connected_robots = []
+event_queue = []
+
+@app.route('/api/poll')
+def poll():
+    global event_queue
+    events = event_queue.copy()
+    event_queue.clear()
+    
+    return jsonify(events)
 
 @app.route('/')
 def index():
@@ -28,23 +48,23 @@ def execute_sequence(sequence):
             cmd = step.get("cmd", "S")
             duration = step.get("time", 0)
             
-            print(f"[AI SEQUENCE] Wysylam komende: {cmd} na czas {duration}s")
-            # Rozsyłamy wszystkim robotom
-            for robot_ws in list(connected_robots):
-                try:
-                    robot_ws.send(cmd)
-                except Exception as e:
-                    print(f"Error WS send (seq): {e}")
+            print(f"[AI SEQUENCE] Kolejkuję komendę: {cmd} na czas {duration}s")
+            cmd_map = {"F": "przód", "B": "tył", "L": "lewo", "R": "prawo", "S": "stop", "W": "wyprostuj"}
+            robot_cmd = cmd_map.get(cmd, cmd)
+            
+            event_queue.append({
+                "event": "robot_command",
+                "data": {"command": robot_cmd, "value": duration}
+            })
             
             if duration > 0:
                 time.sleep(duration)
             
         # Na koniec zatrzymaj
-        for robot_ws in list(connected_robots):
-            try:
-                robot_ws.send("S")
-            except:
-                pass
+        event_queue.append({
+            "event": "robot_command",
+            "data": {"command": "stop", "value": 0}
+        })
         print("[AI SEQUENCE] Zakończono.")
     except Exception as e:
         print(f"Error executing sequence: {e}")
@@ -64,9 +84,9 @@ def nvidia_prompt():
         "Content-Type": "application/json"
     }
 
-    # Używamy najlżejszego meta/llama3-70b-instruct przez autoryzowany endpoint NVIDIA
+    # Używamy nowszego modelu meta/llama-3.1-8b-instruct (poprzedni zwrócił 410 Gone)
     payload = {
-        "model": "meta/llama3-70b-instruct",
+        "model": "meta/llama-3.1-8b-instruct",
         "messages": [
             {
                 "role": "system",
@@ -111,22 +131,6 @@ def nvidia_prompt():
         print("API Error:", error_msg)
         return jsonify({"status": "error", "message": error_msg}), 500
 
-@sock.route('/ws_robot')
-def ws_robot(ws):
-    print(">>> Podłączono Robota (ESP32) <<<")
-    connected_robots.append(ws)
-    try:
-        while True:
-            data = ws.receive()
-            if data is None:
-                break
-    except Exception as e:
-        pass
-    finally:
-        print("<<< Rozłączono Robota (ESP32) >>>")
-        if ws in connected_robots:
-            connected_robots.remove(ws)
-
 @sock.route('/ws_client')
 def ws_client(ws):
     print("Podłączono Klienta Sterującego (Telefon/Przeglądarka)")
@@ -134,19 +138,19 @@ def ws_client(ws):
         while True:
             data = ws.receive()
             if data:
-                disconnected = []
-                for robot_ws in connected_robots:
-                    try:
-                        robot_ws.send(data)
-                    except Exception:
-                        disconnected.append(robot_ws)
-                for d in disconnected:
-                    if d in connected_robots:
-                        connected_robots.remove(d)
+                cmd_map = {"F": "przód", "B": "tył", "L": "lewo", "R": "prawo", "S": "stop", "W": "wyprostuj"}
+                robot_cmd = cmd_map.get(data, data)
+                event_queue.append({
+                    "event": "robot_command",
+                    "data": {"command": robot_cmd, "value": 1}
+                })
     except Exception:
         pass
     finally:
         print("Rozłączono Klienta Sterującego")
 
 if __name__ == '__main__':
+    # Uruchamiamy wątek rozgłaszający IP laptopa
+    beacon_thread = threading.Thread(target=udp_beacon, daemon=True)
+    beacon_thread.start()
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
