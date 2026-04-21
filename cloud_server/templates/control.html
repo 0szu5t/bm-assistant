@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel Robota · {{ code }}</title>
+    <meta name="description" content="Panel sterowania robotem ESP32 — kod {{ code }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:       #060b18;
+            --surface:  #0d1526;
+            --card:     #111c35;
+            --border:   rgba(56,189,248,0.15);
+            --accent1:  #38bdf8;
+            --accent2:  #818cf8;
+            --accent3:  #34d399;
+            --text:     #f0f6ff;
+            --muted:    #64748b;
+            --error:    #f87171;
+            --radius:   14px;
+        }
+
+        html, body {
+            min-height: 100vh;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            overflow-x: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 80% 60% at 50% -10%, rgba(56,189,248,0.10) 0%, transparent 70%),
+                radial-gradient(ellipse 60% 50% at 85% 80%,  rgba(129,140,248,0.07) 0%, transparent 60%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .page {
+            position: relative;
+            z-index: 1;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 1.5rem 1rem 2rem;
+            gap: 1.2rem;
+        }
+
+        /* --- Header --- */
+        header {
+            width: 100%;
+            max-width: 700px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+
+        .header-title {
+            font-size: 1.3rem;
+            font-weight: 800;
+            background: linear-gradient(90deg, var(--accent1), var(--accent2));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .code-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 0.4rem 1rem;
+            font-size: 0.85rem;
+        }
+
+        .code-badge .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent3);
+            animation: blink 2s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0.3; }
+        }
+
+        .code-badge .label { color: var(--muted); }
+        .code-badge .value { font-weight: 700; font-family: monospace; color: var(--accent1); letter-spacing: 0.08em; }
+
+        /* --- Main card --- */
+        .panel {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 1.8rem;
+            width: 100%;
+            max-width: 700px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        /* --- Status log --- */
+        .log-box {
+            background: var(--surface);
+            border-radius: 10px;
+            padding: 1rem;
+            min-height: 120px;
+            max-height: 200px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .log-box::-webkit-scrollbar { width: 4px; }
+        .log-box::-webkit-scrollbar-track { background: transparent; }
+        .log-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .msg {
+            padding: 8px 12px;
+            border-radius: 8px;
+            max-width: 80%;
+            word-break: break-word;
+            line-height: 1.4;
+        }
+        .msg.user   { background: #1d4ed8; align-self: flex-end; border-bottom-right-radius: 2px; }
+        .msg.bot    { background: #334155; align-self: flex-start; border-bottom-left-radius: 2px; }
+        .msg.system {
+            background: rgba(56,189,248,0.08);
+            border: 1px solid rgba(56,189,248,0.15);
+            color: var(--accent1);
+            align-self: center;
+            font-size: 0.8em;
+            border-radius: 20px;
+            max-width: 100%;
+        }
+
+        /* --- D-pad --- */
+        .controls-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.8rem;
+        }
+
+        .dpad {
+            display: grid;
+            grid-template-columns: repeat(3, 64px);
+            grid-template-rows: repeat(3, 64px);
+            gap: 6px;
+        }
+
+        .dpad button {
+            width: 64px;
+            height: 64px;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            font-size: 1.5rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: none;
+        }
+
+        .dpad button:hover    { background: #1e3a5f; box-shadow: 0 0 12px rgba(56,189,248,0.2); }
+        .dpad button.pressed  { background: #1d4ed8; transform: scale(0.93); box-shadow: 0 0 18px rgba(56,189,248,0.35); }
+        .dpad button:disabled { opacity: 0.3; cursor: default; }
+
+        .btn-center { grid-column: 2; grid-row: 2; font-size: 1rem; }
+
+        /* --- Joystick container --- */
+        #joystick-container {
+            display: none;
+            height: 180px;
+            position: relative;
+            width: 100%;
+            max-width: 220px;
+        }
+
+        #joystick-zone { width: 100%; height: 100%; }
+
+        /* --- Bottom toolbar --- */
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+            justify-content: center;
+        }
+
+        .btn-outline {
+            padding: 9px 18px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .btn-outline:hover { background: #1e3a5f; border-color: var(--accent1); }
+
+        /* --- AI input --- */
+        .ai-group {
+            display: flex;
+            gap: 0.6rem;
+        }
+
+        .ai-group input {
+            flex: 1;
+            padding: 11px 14px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            font-size: 0.95rem;
+            outline: none;
+            font-family: 'Inter', sans-serif;
+            transition: border-color 0.2s;
+        }
+
+        .ai-group input:focus  { border-color: var(--accent1); }
+        .ai-group input::placeholder { color: var(--muted); }
+
+        .btn-send {
+            padding: 11px 20px;
+            border-radius: 10px;
+            border: none;
+            background: linear-gradient(90deg, var(--accent1), var(--accent2));
+            color: #060b18;
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            white-space: nowrap;
+            font-family: 'Inter', sans-serif;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+
+        .btn-send:hover  { opacity: 0.9; transform: translateY(-1px); }
+        .btn-send:active { transform: translateY(1px); }
+
+        /* --- Status indicator in header --- */
+        #conn-status {
+            font-size: 0.78rem;
+            color: var(--muted);
+        }
+
+        footer {
+            font-size: 0.75rem;
+            color: var(--muted);
+            text-align: center;
+            margin-top: auto;
+        }
+
+        @media (max-width: 520px) {
+            .panel { padding: 1.2rem; }
+            .dpad { grid-template-columns: repeat(3, 58px); grid-template-rows: repeat(3, 58px); }
+            .dpad button { width: 58px; height: 58px; }
+            .ai-group { flex-direction: column; }
+            .btn-send { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+
+    <header>
+        <div class="header-title">🤖 Robot ESP32</div>
+        <div class="code-badge">
+            <div class="dot"></div>
+            <span class="label">Kod:</span>
+            <span class="value" id="pairing-code">{{ code }}</span>
+        </div>
+    </header>
+
+    <div class="panel">
+
+        <!-- Log komunikacji -->
+        <div class="log-box" id="log-box">
+            <div class="msg system">Połączono z sesją <strong>{{ code }}</strong> — gotowy do sterowania</div>
+        </div>
+
+        <!-- Kontroler -->
+        <div class="controls-wrap">
+
+            <!-- D-pad -->
+            <div class="dpad" id="dpad">
+                <div></div>
+                <button class="ctrl-btn" data-cmd="F" id="btn-F">⬆️</button>
+                <div></div>
+                <button class="ctrl-btn" data-cmd="L" id="btn-L">⬅️</button>
+                <button class="btn-center ctrl-btn" data-cmd="S" id="btn-S">⏹️</button>
+                <button class="ctrl-btn" data-cmd="R" id="btn-R">➡️</button>
+                <div></div>
+                <button class="ctrl-btn" data-cmd="B" id="btn-B">⬇️</button>
+                <div></div>
+            </div>
+
+            <!-- Joystick (hidden by default) -->
+            <div id="joystick-container">
+                <div id="joystick-zone"></div>
+            </div>
+
+            <!-- Toolbar -->
+            <div class="toolbar">
+                <button class="btn-outline" id="toggle-mode-btn">🕹️ Tryb Joystick</button>
+                <button class="btn-outline ctrl-btn" data-cmd="W" id="btn-W">🔧 Wyprostuj Koła</button>
+                <a href="/" style="text-decoration:none;">
+                    <button class="btn-outline">↩ Rozłącz</button>
+                </a>
+            </div>
+        </div>
+
+        <!-- AI -->
+        <div class="ai-group">
+            <input type="text" id="prompt-input" placeholder="np. jedź do przodu 2 sekundy, skręć w prawo..." autocomplete="off">
+            <button class="btn-send" id="send-btn">Wyślij AI ✨</button>
+        </div>
+
+    </div>
+
+    <footer>© 2026 BLC · Sesja wygaśnie po braku aktywności robota</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+<script>
+    const CODE = "{{ code }}";
+    const logBox  = document.getElementById('log-box');
+    const dpad    = document.getElementById('dpad');
+    const joyCont = document.getElementById('joystick-container');
+    const toggleBtn = document.getElementById('toggle-mode-btn');
+    const promptInput = document.getElementById('prompt-input');
+    const sendBtn = document.getElementById('send-btn');
+
+    // ---- Logging ----
+    function log(text, role = 'system') {
+        const div = document.createElement('div');
+        div.className = `msg ${role}`;
+        div.textContent = text;
+        logBox.appendChild(div);
+        logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    // ---- Send command ----
+    async function sendCmd(cmd) {
+        try {
+            await fetch(`/api/command/${CODE}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cmd })
+            });
+        } catch (err) {
+            log('⚠️ Błąd połączenia z serwerem', 'system');
+        }
+    }
+
+    // ---- D-pad buttons ----
+    document.querySelectorAll('.ctrl-btn').forEach(btn => {
+        const cmd = btn.dataset.cmd;
+
+        const press = (e) => {
+            e.preventDefault();
+            btn.classList.add('pressed');
+            sendCmd(cmd);
+        };
+        const release = (e) => {
+            e.preventDefault();
+            btn.classList.remove('pressed');
+            if (cmd !== 'S' && cmd !== 'W') sendCmd('S');
+        };
+
+        btn.addEventListener('touchstart', press, { passive: false });
+        btn.addEventListener('touchend',   release, { passive: false });
+        btn.addEventListener('touchcancel',release, { passive: false });
+        btn.addEventListener('mousedown',  press);
+        btn.addEventListener('mouseup',    release);
+        btn.addEventListener('mouseleave', release);
+    });
+
+    // ---- Keyboard support ----
+    const keyMap = {
+        'ArrowUp': 'F', 'w': 'F', 'W': 'F',
+        'ArrowDown': 'B', 's': 'B', 'S': 'B',
+        'ArrowLeft': 'L', 'a': 'L', 'A': 'L',
+        'ArrowRight': 'R', 'd': 'R', 'D': 'R',
+    };
+    const heldKeys = new Set();
+
+    document.addEventListener('keydown', (e) => {
+        if (e.target === promptInput) return;
+        const cmd = keyMap[e.key];
+        if (cmd && !heldKeys.has(e.key)) {
+            heldKeys.add(e.key);
+            sendCmd(cmd);
+            document.getElementById(`btn-${cmd}`)?.classList.add('pressed');
+        }
+    });
+    document.addEventListener('keyup', (e) => {
+        if (e.target === promptInput) return;
+        const cmd = keyMap[e.key];
+        if (cmd) {
+            heldKeys.delete(e.key);
+            if (heldKeys.size === 0) sendCmd('S');
+            document.getElementById(`btn-${cmd}`)?.classList.remove('pressed');
+        }
+    });
+
+    // ---- Toggle Joystick / D-pad ----
+    let joystickMode = false;
+    toggleBtn.addEventListener('click', () => {
+        joystickMode = !joystickMode;
+        dpad.style.display    = joystickMode ? 'none'  : 'grid';
+        joyCont.style.display = joystickMode ? 'block' : 'none';
+        toggleBtn.textContent = joystickMode ? '🎮 Tryb Strzałki' : '🕹️ Tryb Joystick';
+    });
+
+    // ---- NippleJS joystick ----
+    const manager = nipplejs.create({
+        zone: document.getElementById('joystick-zone'),
+        mode: 'dynamic',
+        color: '#38bdf8',
+        size: 130
+    });
+    manager.on('dir:up',    () => sendCmd('F'));
+    manager.on('dir:down',  () => sendCmd('B'));
+    manager.on('dir:left',  () => sendCmd('L'));
+    manager.on('dir:right', () => sendCmd('R'));
+    manager.on('end',       () => sendCmd('S'));
+
+    // ---- NVIDIA AI ----
+    async function sendPrompt() {
+        const text = promptInput.value.trim();
+        if (!text) return;
+
+        log(text, 'user');
+        promptInput.value = '';
+        log('🤖 NVIDIA AI przetwarza...', 'system');
+
+        try {
+            const res = await fetch(`/api/nvidia/${CODE}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: text })
+            });
+            const data = await res.json();
+
+            if (data.status === 'error') {
+                log('❌ Błąd AI: ' + data.message, 'bot');
+            } else if (data.status === 'success') {
+                const steps = data.sequence.map(s => `${s.cmd}×${s.time}s`).join(', ');
+                log(`✅ Sekwencja: ${steps}`, 'bot');
+            } else {
+                log(JSON.stringify(data), 'bot');
+            }
+        } catch (err) {
+            log('⚠️ Błąd połączenia z serwerem AI', 'system');
+        }
+    }
+
+    sendBtn.addEventListener('click', sendPrompt);
+    promptInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendPrompt();
+    });
+</script>
+</body>
+</html>

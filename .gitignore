@@ -2,6 +2,10 @@
 
 laptop_server/.venv/
 laptop_server/__pycache__/
+
+cloud_server/.venv/
+cloud_server/__pycache__/
+cloud_server/.env
 *.pyc
 *.pyo
 *.pyd

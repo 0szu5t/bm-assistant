@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot ESP32 — Połącz z Robotem</title>
+    <meta name="description" content="Wpisz kod parowania wyświetlony na ekranie robota, aby rozpocząć sterowanie.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:        #060b18;
+            --surface:   #0d1526;
+            --card:      #111c35;
+            --border:    rgba(56,189,248,0.15);
+            --accent1:   #38bdf8;
+            --accent2:   #818cf8;
+            --accent3:   #34d399;
+            --text:      #f0f6ff;
+            --muted:     #64748b;
+            --error:     #f87171;
+            --radius:    16px;
+        }
+
+        html, body {
+            min-height: 100vh;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            overflow-x: hidden;
+        }
+
+        /* --- Animated background grid --- */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(ellipse 80% 60% at 50% -10%, rgba(56,189,248,0.12) 0%, transparent 70%),
+                radial-gradient(ellipse 60% 50% at 85% 80%,  rgba(129,140,248,0.08) 0%, transparent 60%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .grid-bg {
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(56,189,248,0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(56,189,248,0.04) 1px, transparent 1px);
+            background-size: 48px 48px;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .page {
+            position: relative;
+            z-index: 1;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 1rem;
+            gap: 2.5rem;
+        }
+
+        /* --- Logo / icon --- */
+        .logo {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 24px;
+            background: linear-gradient(135deg, var(--accent1), var(--accent2));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.4rem;
+            box-shadow: 0 0 40px rgba(56,189,248,0.3), 0 0 80px rgba(129,140,248,0.15);
+            animation: pulse 3s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 40px rgba(56,189,248,0.3), 0 0 80px rgba(129,140,248,0.15); }
+            50%       { box-shadow: 0 0 60px rgba(56,189,248,0.5), 0 0 100px rgba(129,140,248,0.25); }
+        }
+
+        .logo h1 {
+            font-size: clamp(1.8rem, 5vw, 2.8rem);
+            font-weight: 800;
+            background: linear-gradient(90deg, var(--accent1), var(--accent2));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            text-align: center;
+            letter-spacing: -0.02em;
+        }
+
+        .logo p {
+            color: var(--muted);
+            font-size: 1rem;
+            text-align: center;
+            max-width: 340px;
+            line-height: 1.6;
+        }
+
+        /* --- Card --- */
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 2.5rem 2rem;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+            backdrop-filter: blur(12px);
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 0.4rem;
+        }
+
+        .card-sub {
+            font-size: 0.875rem;
+            color: var(--muted);
+            margin-bottom: 1.8rem;
+            line-height: 1.5;
+        }
+
+        .code-input {
+            width: 100%;
+            padding: 1rem 1.2rem;
+            font-size: 1.6rem;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            text-align: center;
+            text-transform: uppercase;
+            border-radius: 12px;
+            border: 2px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            margin-bottom: 1.2rem;
+            font-family: 'Inter', monospace;
+        }
+
+        .code-input::placeholder {
+            color: var(--muted);
+            letter-spacing: 0.1em;
+            font-size: 1.2rem;
+        }
+
+        .code-input:focus {
+            border-color: var(--accent1);
+            box-shadow: 0 0 0 3px rgba(56,189,248,0.15);
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 1rem;
+            border-radius: 12px;
+            border: none;
+            background: linear-gradient(90deg, var(--accent1), var(--accent2));
+            color: #060b18;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            letter-spacing: 0.02em;
+            transition: opacity 0.2s, transform 0.1s, box-shadow 0.2s;
+            box-shadow: 0 4px 20px rgba(56,189,248,0.25);
+        }
+
+        .btn-primary:hover {
+            opacity: 0.92;
+            transform: translateY(-1px);
+            box-shadow: 0 8px 30px rgba(56,189,248,0.35);
+        }
+
+        .btn-primary:active {
+            transform: translateY(1px);
+        }
+
+        /* --- Error --- */
+        .error-box {
+            background: rgba(248,113,113,0.1);
+            border: 1px solid rgba(248,113,113,0.3);
+            border-radius: 10px;
+            padding: 0.9rem 1.1rem;
+            color: var(--error);
+            font-size: 0.9rem;
+            margin-bottom: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        /* --- Steps --- */
+        .steps {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            width: 100%;
+            max-width: 420px;
+        }
+
+        .steps-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 0.3rem;
+        }
+
+        .step {
+            display: flex;
+            align-items: flex-start;
+            gap: 1rem;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem 1.2rem;
+        }
+
+        .step-num {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent1), var(--accent2));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: #060b18;
+            flex-shrink: 0;
+        }
+
+        .step-text {
+            font-size: 0.9rem;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .step-text strong { color: var(--text); }
+
+        /* --- Footer --- */
+        footer {
+            font-size: 0.78rem;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        @media (max-width: 480px) {
+            .card { padding: 1.8rem 1.4rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="grid-bg"></div>
+    <main class="page">
+
+        <div class="logo">
+            <div class="logo-icon">🤖</div>
+            <h1>Robot ESP32</h1>
+            <p>Zdalne sterowanie przez internet — bez konfiguracji sieci</p>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Wprowadź kod parowania</div>
+            <div class="card-sub">Kod wyświetla się na ekranie OLED robota po uruchomieniu.</div>
+
+            {% if error %}
+            <div class="error-box">
+                <span>⚠️</span>
+                <span>{{ error }}</span>
+            </div>
+            {% endif %}
+
+            <form action="/join" method="post">
+                <input
+                    id="code-input"
+                    class="code-input"
+                    type="text"
+                    name="code"
+                    placeholder="XXX-XXX"
+                    maxlength="7"
+                    autocomplete="off"
+                    autocorrect="off"
+                    spellcheck="false"
+                    autofocus
+                    required
+                >
+                <button class="btn-primary" type="submit" id="connect-btn">
+                    Połącz z Robotem →
+                </button>
+            </form>
+        </div>
+
+        <div class="steps">
+            <div class="steps-title">Jak to działa?</div>
+            <div class="step">
+                <div class="step-num">1</div>
+                <div class="step-text"><strong>Włącz robota</strong> — połączy się z WiFi przez portal konfiguracyjny <em>RobotAP</em></div>
+            </div>
+            <div class="step">
+                <div class="step-num">2</div>
+                <div class="step-text"><strong>Odczytaj kod</strong> — 6-znakowy kod pojawi się na ekraniku OLED robota</div>
+            </div>
+            <div class="step">
+                <div class="step-num">3</div>
+                <div class="step-text"><strong>Wpisz kod</strong> powyżej i kliknij Połącz — gotowe!</div>
+            </div>
+        </div>
+
+        <footer>© 2026 BLC · Robot ESP32 · Sterowanie przez internet</footer>
+    </main>
+
+    <script>
+        // Auto-format code input as XXX-XXX
+        const input = document.getElementById('code-input');
+        input.addEventListener('input', () => {
+            let val = input.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6);
+            if (val.length > 3) val = val.slice(0, 3) + '-' + val.slice(3);
+            input.value = val;
+        });
+    </script>
+</body>
+</html>
