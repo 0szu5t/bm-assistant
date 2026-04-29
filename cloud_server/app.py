@@ -2,8 +2,6 @@ import os
 import json
 import time
 import random
-import string
-import threading
 import requests
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 from dotenv import load_dotenv
@@ -17,26 +15,30 @@ app = Flask(__name__)
 # Konfiguracja
 # ---------------------------------------------------------------------------
 
-SESSION_TTL_SECONDS = int(os.environ.get("SESSION_TTL_SECONDS", 300)) 
-
+SESSION_TTL_SECONDS = int(os.environ.get("SESSION_TTL_SECONDS", 300))
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "your_key_here")
-
-# ---------------------------------------------------------------------------
-# Redis
-# ---------------------------------------------------------------------------
-
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
-r = redis.from_url(REDIS_URL, decode_responses=True)
+
+# ---------------------------------------------------------------------------
+# Redis — lazy connection (nie łączy przy imporcie, tylko przy pierwszym użyciu)
+# ---------------------------------------------------------------------------
+
+_redis_client = None
+
+def get_redis():
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+    return _redis_client
 
 # ---------------------------------------------------------------------------
 # Pomocnicze funkcje
 # ---------------------------------------------------------------------------
 
-_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # bez mylących O/0, I/1
+_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
 def generate_code() -> str:
-    """Generuje unikalny kod parowania w formacie XXX-XXX."""
     part1 = "".join(random.choices(_CODE_CHARS, k=3))
     part2 = "".join(random.choices(_CODE_CHARS, k=3))
     return f"{part1}-{part2}"
@@ -51,19 +53,30 @@ def queue_key(code: str) -> str:
 
 
 def get_session(code: str):
-    data = r.hgetall(session_key(code))
-    return data if data else None
+    try:
+        data = get_redis().hgetall(session_key(code))
+        return data if data else None
+    except Exception as e:
+        print(f"[REDIS ERROR] get_session: {e}")
+        return None
 
 
 def refresh_ttl(code: str):
-    r.expire(session_key(code), SESSION_TTL_SECONDS)
-    r.expire(queue_key(code), SESSION_TTL_SECONDS)
+    try:
+        r = get_redis()
+        r.expire(session_key(code), SESSION_TTL_SECONDS)
+        r.expire(queue_key(code), SESSION_TTL_SECONDS)
+    except Exception as e:
+        print(f"[REDIS ERROR] refresh_ttl: {e}")
 
 
 def push_event(code: str, event: dict):
-
-    r.rpush(queue_key(code), json.dumps(event))
-    r.expire(queue_key(code), SESSION_TTL_SECONDS)
+    try:
+        r = get_redis()
+        r.rpush(queue_key(code), json.dumps(event))
+        r.expire(queue_key(code), SESSION_TTL_SECONDS)
+    except Exception as e:
+        print(f"[REDIS ERROR] push_event: {e}")
 
 
 CMD_MAP = {
@@ -98,7 +111,7 @@ def join():
     if not get_session(code):
         return render_template(
             "home.html",
-            error=f"Kod „{code}"
+            error=f"Kod '{code}' nie istnieje lub wygasl. Sprawdz ekran robota.",
         )
 
     return redirect(url_for("control", code=code))
@@ -110,67 +123,94 @@ def control(code: str):
     if not get_session(code):
         return render_template(
             "home.html",
-            error=f"Kod „{code}" #nie istnieje lub wygasł.",
+            error=f"Kod '{code}' nie istnieje lub wygasl.",
         )
     return render_template("control.html", code=code)
 
 
+# ---------------------------------------------------------------------------
+# API — diagnostyka
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/health")
+def health():
+    try:
+        get_redis().ping()
+        redis_ok = True
+    except Exception as e:
+        redis_ok = False
+    return jsonify({
+        "status": "ok",
+        "redis": redis_ok,
+        "redis_url": REDIS_URL[:30] + "..." if len(REDIS_URL) > 30 else REDIS_URL,
+        "session_ttl": SESSION_TTL_SECONDS,
+    })
+
+
+# ---------------------------------------------------------------------------
+# API — ESP32
+# ---------------------------------------------------------------------------
+
 
 @app.route("/api/register", methods=["POST"])
 def api_register():
-    """ESP32 rejestruje się i dostaje kod parowania."""
     data = request.json or {}
     device_id = data.get("device_id", "unknown")
 
-    # Generuj unikalny kod
-    code = generate_code()
-    while get_session(code):
+    try:
+        r = get_redis()
         code = generate_code()
+        while get_session(code):
+            code = generate_code()
 
-    # Zapisz sesję w Redis
-    r.hset(
-        session_key(code),
-        mapping={
-            "device_id": device_id,
-            "last_seen": str(time.time()),
-            "created_at": str(time.time()),
-        },
-    )
-    r.expire(session_key(code), SESSION_TTL_SECONDS)
+        r.hset(
+            session_key(code),
+            mapping={
+                "device_id": device_id,
+                "last_seen": str(time.time()),
+                "created_at": str(time.time()),
+            },
+        )
+        r.expire(session_key(code), SESSION_TTL_SECONDS)
+        r.delete(queue_key(code))
 
-    # Wyczyść (lub utwórz) kolejkę
-    r.delete(queue_key(code))
-    r.expire(queue_key(code), SESSION_TTL_SECONDS)
+        print(f"[REGISTER] device={device_id}  code={code}  ttl={SESSION_TTL_SECONDS}s")
+        return jsonify({"code": code, "ttl": SESSION_TTL_SECONDS})
 
-    print(f"[REGISTER] device={device_id}  code={code}  ttl={SESSION_TTL_SECONDS}s")
-    return jsonify({"code": code, "ttl": SESSION_TTL_SECONDS})
+    except Exception as e:
+        print(f"[REGISTER ERROR] {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
 @app.route("/api/poll")
 def api_poll():
-
     code = request.args.get("code", "").upper()
     if not code:
         return jsonify({"error": "Brak kodu"}), 400
 
     session = get_session(code)
     if not session:
-        return jsonify({"error": "Sesja wygasła"}), 404
+        return jsonify({"error": "Sesja wygasla"}), 404
 
+    try:
+        r = get_redis()
+        r.hset(session_key(code), "last_seen", str(time.time()))
+        refresh_ttl(code)
 
-    r.hset(session_key(code), "last_seen", str(time.time()))
-    refresh_ttl(code)
+        qk = queue_key(code)
+        events = []
+        while True:
+            item = r.lpop(qk)
+            if item is None:
+                break
+            events.append(json.loads(item))
 
+        return jsonify(events)
 
-    qk = queue_key(code)
-    events = []
-    while True:
-        item = r.lpop(qk)
-        if item is None:
-            break
-        events.append(json.loads(item))
-
-    return jsonify(events)
+    except Exception as e:
+        print(f"[POLL ERROR] {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -180,10 +220,9 @@ def api_poll():
 
 @app.route("/api/command/<code>", methods=["POST"])
 def api_command(code: str):
-
     code = code.upper()
     if not get_session(code):
-        return jsonify({"error": "Sesja wygasła"}), 404
+        return jsonify({"error": "Sesja wygasla"}), 404
 
     data = request.json or {}
     cmd = data.get("cmd", "S")
@@ -199,7 +238,6 @@ def api_command(code: str):
 
 
 def _run_sequence(code: str, sequence: list):
-
     try:
         for step in sequence:
             cmd = step.get("cmd", "S")
@@ -209,7 +247,6 @@ def _run_sequence(code: str, sequence: list):
                 code,
                 {"event": "robot_command", "data": {"command": robot_cmd, "value": duration}},
             )
-        # Upewnij się, że robot zatrzymuje się na końcu
         push_event(code, {"event": "robot_command", "data": {"command": "stop", "value": 0}})
     except Exception as exc:
         print(f"[SEQUENCE ERROR] {exc}")
@@ -219,13 +256,13 @@ def _run_sequence(code: str, sequence: list):
 def api_nvidia(code: str):
     code = code.upper()
     if not get_session(code):
-        return jsonify({"error": "Sesja wygasła"}), 404
+        return jsonify({"error": "Sesja wygasla"}), 404
 
     data = request.json or {}
     user_msg = data.get("prompt", "")
 
     if not NVIDIA_API_KEY or NVIDIA_API_KEY == "your_key_here":
-        return jsonify({"status": "error", "message": "Brak klucza NVIDIA_API_KEY w zmiennych środowiskowych."}), 500
+        return jsonify({"status": "error", "message": "Brak klucza NVIDIA_API_KEY."}), 500
 
     headers = {
         "Authorization": f"Bearer {NVIDIA_API_KEY}",
@@ -237,12 +274,10 @@ def api_nvidia(code: str):
             {
                 "role": "system",
                 "content": (
-                    "Jesteś kontrolerem robota na platformie ESP32. Zamień polecenie użytkownika na format JSON "
-                    "- wyłącznie tablicę akcji. Każda akcja ma 'cmd' (F-przód, B-tył, L-lewo, R-prawo, S-stop) "
-                    "oraz 'time' (czas w sekundach jak np 1.5 lub 2). Przeanalizuj uważnie czas z języka naturalnego. "
-                    "Pamiętaj by zawsze na koniec zatrzymać dodając cmd:S, time:0. Zwróć TYLKO czysty i poprawny JSON, "
-                    'absolutnie bez żadnych dodatkowych opisów, bez formatowania markdown. '
-                    'Przykładowy poprawny output: [{"cmd":"F","time":2},{"cmd":"R","time":1},{"cmd":"S","time":0}]'
+                    "Jestes kontrolerem robota ESP32. Zamien polecenie na JSON - wylacznie tablice akcji. "
+                    "Kazda akcja ma 'cmd' (F-przod, B-tyl, L-lewo, R-prawo, S-stop) i 'time' (sekundy). "
+                    "Na koncu zawsze dodaj cmd:S, time:0. Zwroc TYLKO czysty JSON bez markdown. "
+                    'Przyklad: [{"cmd":"F","time":2},{"cmd":"S","time":0}]'
                 ),
             },
             {"role": "user", "content": user_msg},
@@ -252,7 +287,6 @@ def api_nvidia(code: str):
     }
 
     try:
-        print(f"[NVIDIA] Wysyłanie: {user_msg}")
         resp = requests.post(
             "https://integrate.api.nvidia.com/v1/chat/completions",
             headers=headers,
@@ -262,27 +296,22 @@ def api_nvidia(code: str):
         resp.raise_for_status()
 
         reply_text = resp.json()["choices"][0]["message"]["content"].strip()
-        print(f"[NVIDIA] Odpowiedź:\n{reply_text}")
 
-        # Wyczyść markdown code fences jeśli model je dodał
-        if reply_text.startswith("```json"):
-            reply_text = reply_text[7:]
-        if reply_text.startswith("```"):
-            reply_text = reply_text[3:]
+        for fence in ("```json", "```"):
+            if reply_text.startswith(fence):
+                reply_text = reply_text[len(fence):]
         if reply_text.endswith("```"):
             reply_text = reply_text[:-3]
 
         sequence = json.loads(reply_text.strip())
-
-        # Zakolejkuj komendy (bez blokowania wątku — działa na Vercel)
         _run_sequence(code, sequence)
 
-        return jsonify({"status": "success", "message": "Zrozumiano, wykonuję!", "sequence": sequence})
+        return jsonify({"status": "success", "message": "Zrozumiano, wykonuje!", "sequence": sequence})
 
     except Exception as exc:
         error_msg = str(exc)
         if "401" in error_msg:
-            error_msg = "Zły klucz do NVIDIA API"
+            error_msg = "Zly klucz do NVIDIA API"
         print(f"[NVIDIA ERROR] {error_msg}")
         return jsonify({"status": "error", "message": error_msg}), 500
 
