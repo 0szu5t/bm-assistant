@@ -17,8 +17,7 @@ app = Flask(__name__)
 # Konfiguracja
 # ---------------------------------------------------------------------------
 
-# Czas wygaśnięcia sesji (sekundy) — zmień tę zmienną środowiskową wg potrzeb
-SESSION_TTL_SECONDS = int(os.environ.get("SESSION_TTL_SECONDS", 300))  # domyślnie 5 minut
+SESSION_TTL_SECONDS = int(os.environ.get("SESSION_TTL_SECONDS", 300)) 
 
 NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "your_key_here")
 
@@ -57,13 +56,12 @@ def get_session(code: str):
 
 
 def refresh_ttl(code: str):
-    """Odświeża TTL dla sesji i kolejki."""
     r.expire(session_key(code), SESSION_TTL_SECONDS)
     r.expire(queue_key(code), SESSION_TTL_SECONDS)
 
 
 def push_event(code: str, event: dict):
-    """Dodaje zdarzenie do kolejki ESP32."""
+
     r.rpush(queue_key(code), json.dumps(event))
     r.expire(queue_key(code), SESSION_TTL_SECONDS)
 
@@ -117,10 +115,6 @@ def control(code: str):
     return render_template("control.html", code=code)
 
 
-# ---------------------------------------------------------------------------
-# API — ESP32
-# ---------------------------------------------------------------------------
-
 
 @app.route("/api/register", methods=["POST"])
 def api_register():
@@ -154,7 +148,7 @@ def api_register():
 
 @app.route("/api/poll")
 def api_poll():
-    """ESP32 pobiera komendy (polling). Zwraca listę zdarzeń."""
+
     code = request.args.get("code", "").upper()
     if not code:
         return jsonify({"error": "Brak kodu"}), 400
@@ -163,11 +157,11 @@ def api_poll():
     if not session:
         return jsonify({"error": "Sesja wygasła"}), 404
 
-    # Odśwież czas ostatniego kontaktu i TTL
+
     r.hset(session_key(code), "last_seen", str(time.time()))
     refresh_ttl(code)
 
-    # Pobierz wszystkie komendy z kolejki (atomowo)
+
     qk = queue_key(code)
     events = []
     while True:
@@ -186,7 +180,7 @@ def api_poll():
 
 @app.route("/api/command/<code>", methods=["POST"])
 def api_command(code: str):
-    """Przeglądarka wysyła komendę do robota."""
+
     code = code.upper()
     if not get_session(code):
         return jsonify({"error": "Sesja wygasła"}), 404
@@ -205,11 +199,7 @@ def api_command(code: str):
 
 
 def _run_sequence(code: str, sequence: list):
-    """
-    Ładuje całą sekwencję AI do kolejki Redis od razu (bez sleepów).
-    ESP32 wykonuje komendy jedna po drugiej dzięki wewnętrznej kolejce.
-    Działa poprawnie na serwerach bezstanowych (Vercel).
-    """
+
     try:
         for step in sequence:
             cmd = step.get("cmd", "S")

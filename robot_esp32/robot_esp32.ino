@@ -12,7 +12,7 @@
 // ============================================================
 // ZMIEŃ NA SWÓJ URL SERWERA (Vercel / homelab)
 // ============================================================
-const char* SERVER_URL = "https://twoj-robot.vercel.app";
+const char* SERVER_URL = "";
 
 // Interwał pollowania (ms)
 const unsigned long POLL_INTERVAL = 500;
