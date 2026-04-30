@@ -175,35 +175,41 @@ void playAudioFromBase64(const char* b64Data, size_t b64Len) {
 // ============================================================
 // Silniki
 // ============================================================
+// Wyprostuj tylko koła skrętne (statycznie) — nie ruszaj silników napędowych
 void wyprostujKola() {
-    if      (WHEEL_CORRECTION > 0) { digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);  ledcWrite(ENB, WHEEL_CORRECTION);  }
-    else if (WHEEL_CORRECTION < 0) { digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH); ledcWrite(ENB, -WHEEL_CORRECTION); }
-    else                           { digitalWrite(IN3, LOW);  digitalWrite(IN4, LOW);  ledcWrite(ENB, 0); }
+    digitalWrite(IN3, LOW); digitalWrite(IN4, LOW); ledcWrite(ENB, 0);
 }
 
 void stopMotors() {
     digitalWrite(IN1, LOW); digitalWrite(IN2, LOW); ledcWrite(ENA, 0);
     digitalWrite(IN3, LOW); digitalWrite(IN4, LOW); ledcWrite(ENB, 0);
-    isMoving = isTurning = false;
+    isMoving = isTurning = continuous = false;
 }
 
 void moveForward(int ms) {
+    // Motor A — do przodu
     digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW); ledcWrite(ENA, speedPWM);
-    wyprostujKola();
+    // Motor B — do przodu z korekcją
+    int speedB = constrain(speedPWM + WHEEL_CORRECTION, 0, 255);
+    digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW); ledcWrite(ENB, speedB);
     if (ms > 0) { actionEndTime = millis() + ms; continuous = false; }
-    else        { actionEndTime = 0; continuous = true; }  // jedź bez limitu
+    else        { actionEndTime = 0; continuous = true; }
     isMoving = true; isTurning = false;
 }
 
 void moveBackward(int ms) {
+    // Motor A — do tyłu
     digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH); ledcWrite(ENA, speedPWM);
-    wyprostujKola();
+    // Motor B — do tyłu z korekcją
+    int speedB = constrain(speedPWM + WHEEL_CORRECTION, 0, 255);
+    digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH); ledcWrite(ENB, speedB);
     if (ms > 0) { actionEndTime = millis() + ms; continuous = false; }
     else        { actionEndTime = 0; continuous = true; }
     isMoving = true; isTurning = false;
 }
 
 void turnLeft(int ms) {
+    // Motor A do przodu, Motor B do tyłu (obrót w lewo)
     digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH); ledcWrite(ENB, kickSpeed);
     delay(kickTime); ledcWrite(ENB, holdSpeed);
     digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);  ledcWrite(ENA, speedPWM);
@@ -213,6 +219,7 @@ void turnLeft(int ms) {
 }
 
 void turnRight(int ms) {
+    // Motor A do tyłu, Motor B do przodu (obrót w prawo)
     digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW); ledcWrite(ENB, kickSpeed);
     delay(kickTime); ledcWrite(ENB, holdSpeed);
     digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW); ledcWrite(ENA, speedPWM);
@@ -224,7 +231,7 @@ void turnRight(int ms) {
 void executeCommand(const String& cmd, int durationSec) {
     // durationSec == 0  → tryb ciągły (jedź do STOP)
     // durationSec  > 0  → jedź przez durationSec sekund
-    int ms = durationSec * 1000;  // ms == 0 gdy ciągły
+    int ms = durationSec * 1000;
 
     if (durationSec > 0)
         updateDisplay("Cmd: " + cmd + "\n" + String(durationSec) + "s");
@@ -235,7 +242,7 @@ void executeCommand(const String& cmd, int durationSec) {
     else if (cmd == "tyl"   || cmd == "tył")   moveBackward(ms);
     else if (cmd == "lewo")                     turnLeft(ms);
     else if (cmd == "prawo")                    turnRight(ms);
-    else if (cmd == "wyprostuj") { wyprostujKola(); if (ms > 0) { actionEndTime = millis() + ms; continuous = false; } else continuous = true; isMoving = true; }
+    else if (cmd == "wyprostuj") { wyprostujKola(); if (ms > 0) { actionEndTime = millis() + ms; continuous = false; } else { continuous = false; } isMoving = false; }
     else stopMotors();
 }
 

@@ -243,12 +243,13 @@ def _run_sequence(code: str, sequence: list):
         for step in sequence:
             cmd = step.get("cmd", "S")
             duration = step.get("time", 0)
+            if cmd in ["S", "stop", "S-stop"] or duration <= 0:
+                continue
             robot_cmd = CMD_MAP.get(cmd, cmd)
             push_event(
                 code,
                 {"event": "robot_command", "data": {"command": robot_cmd, "value": duration}},
             )
-        push_event(code, {"event": "robot_command", "data": {"command": "stop", "value": 0}})
     except Exception as exc:
         print(f"[SEQUENCE ERROR] {exc}")
 
@@ -276,9 +277,9 @@ def api_nvidia(code: str):
                 "role": "system",
                 "content": (
                     "Jestes kontrolerem robota ESP32. Zamien polecenie na JSON - wylacznie tablice akcji. "
-                    "Kazda akcja ma 'cmd' (F-przod, B-tyl, L-lewo, R-prawo, S-stop) i 'time' (sekundy). "
-                    "Na koncu zawsze dodaj cmd:S, time:0. Zwroc TYLKO czysty JSON bez markdown. "
-                    'Przyklad: [{"cmd":"F","time":2},{"cmd":"S","time":0}]'
+                    "Kazda akcja ma 'cmd' (F-przod, B-tyl, L-lewo, R-prawo) i 'time' (sekundy). "
+                    "Zwroc TYLKO czysty JSON bez markdown. "
+                    'Przyklad: [{"cmd":"F","time":2},{"cmd":"R","time":1}]'
                 ),
             },
             {"role": "user", "content": user_msg},
