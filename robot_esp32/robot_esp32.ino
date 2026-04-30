@@ -12,7 +12,7 @@
 // ============================================================
 // ZMIEŃ NA SWÓJ URL SERWERA (Vercel / homelab)
 // ============================================================
-const char* SERVER_URL = "";
+const char* SERVER_URL = "https://bm-assistant.vercel.app"; // BEZ slash na końcu!
 
 // Interwał pollowania (ms)
 const unsigned long POLL_INTERVAL = 500;
@@ -48,7 +48,9 @@ const int speedPWM   = 150;
 const int kickSpeed  = 255;
 const int holdSpeed  = 100;
 const int kickTime   = 150;
-const int trimSpeed  = 120;
+
+
+const int WHEEL_CORRECTION = 0;  // <-- !!!!!
 
 #define AUDIO_BUFFER_SIZE 32000
 volatile uint8_t audioBuffer[AUDIO_BUFFER_SIZE];
@@ -61,8 +63,9 @@ hw_timer_t      *audioTimer   = NULL;
 // Stan ruchu
 // ============================================================
 unsigned long actionEndTime = 0;
-bool isMoving  = false;
-bool isTurning = false;
+bool isMoving   = false;
+bool isTurning  = false;
+bool continuous = false;  // true = jedź bez limitu czasu (do STOP)
 
 // ============================================================
 // Kod parowania i timing
@@ -173,9 +176,9 @@ void playAudioFromBase64(const char* b64Data, size_t b64Len) {
 // Silniki
 // ============================================================
 void wyprostujKola() {
-    if      (trimSpeed > 0) { digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);  ledcWrite(ENB, trimSpeed);  }
-    else if (trimSpeed < 0) { digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH); ledcWrite(ENB, -trimSpeed); }
-    else                    { digitalWrite(IN3, LOW);  digitalWrite(IN4, LOW);  ledcWrite(ENB, 0); }
+    if      (WHEEL_CORRECTION > 0) { digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);  ledcWrite(ENB, WHEEL_CORRECTION);  }
+    else if (WHEEL_CORRECTION < 0) { digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH); ledcWrite(ENB, -WHEEL_CORRECTION); }
+    else                           { digitalWrite(IN3, LOW);  digitalWrite(IN4, LOW);  ledcWrite(ENB, 0); }
 }
 
 void stopMotors() {
@@ -187,20 +190,25 @@ void stopMotors() {
 void moveForward(int ms) {
     digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW); ledcWrite(ENA, speedPWM);
     wyprostujKola();
-    actionEndTime = millis() + ms; isMoving = true; isTurning = false;
+    if (ms > 0) { actionEndTime = millis() + ms; continuous = false; }
+    else        { actionEndTime = 0; continuous = true; }  // jedź bez limitu
+    isMoving = true; isTurning = false;
 }
 
 void moveBackward(int ms) {
     digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH); ledcWrite(ENA, speedPWM);
     wyprostujKola();
-    actionEndTime = millis() + ms; isMoving = true; isTurning = false;
+    if (ms > 0) { actionEndTime = millis() + ms; continuous = false; }
+    else        { actionEndTime = 0; continuous = true; }
+    isMoving = true; isTurning = false;
 }
 
 void turnLeft(int ms) {
     digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH); ledcWrite(ENB, kickSpeed);
     delay(kickTime); ledcWrite(ENB, holdSpeed);
     digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);  ledcWrite(ENA, speedPWM);
-    actionEndTime = millis() + (ms > kickTime ? ms - kickTime : 0);
+    if (ms > 0) { actionEndTime = millis() + (ms > kickTime ? ms - kickTime : 0); continuous = false; }
+    else        { actionEndTime = 0; continuous = true; }
     isMoving = true; isTurning = true;
 }
 
@@ -208,20 +216,26 @@ void turnRight(int ms) {
     digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW); ledcWrite(ENB, kickSpeed);
     delay(kickTime); ledcWrite(ENB, holdSpeed);
     digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW); ledcWrite(ENA, speedPWM);
-    actionEndTime = millis() + (ms > kickTime ? ms - kickTime : 0);
+    if (ms > 0) { actionEndTime = millis() + (ms > kickTime ? ms - kickTime : 0); continuous = false; }
+    else        { actionEndTime = 0; continuous = true; }
     isMoving = true; isTurning = true;
 }
 
 void executeCommand(const String& cmd, int durationSec) {
-    if (durationSec <= 0) durationSec = 1;
-    int ms = durationSec * 1000;
-    updateDisplay("Cmd: " + cmd + "\n" + String(durationSec) + "s");
+    // durationSec == 0  → tryb ciągły (jedź do STOP)
+    // durationSec  > 0  → jedź przez durationSec sekund
+    int ms = durationSec * 1000;  // ms == 0 gdy ciągły
+
+    if (durationSec > 0)
+        updateDisplay("Cmd: " + cmd + "\n" + String(durationSec) + "s");
+    else
+        updateDisplay("Cmd: " + cmd + "\nciagle");
 
     if      (cmd == "przod" || cmd == "przód") moveForward(ms);
     else if (cmd == "tyl"   || cmd == "tył")   moveBackward(ms);
     else if (cmd == "lewo")                     turnLeft(ms);
     else if (cmd == "prawo")                    turnRight(ms);
-    else if (cmd == "wyprostuj") { wyprostujKola(); actionEndTime = millis() + ms; isMoving = true; }
+    else if (cmd == "wyprostuj") { wyprostujKola(); if (ms > 0) { actionEndTime = millis() + ms; continuous = false; } else continuous = true; isMoving = true; }
     else stopMotors();
 }
 
@@ -361,11 +375,11 @@ void setup() {
     }
 
     // WiFiManager — bez pola IP (serwer cloud ma stały URL)
-    updateDisplay("PORTAL WIFI\nPolacz: RobotAP");
+    updateDisplay("PORTAL WIFI\nPolacz: bm-assistant");
     WiFiManager wm;
-    // wm.resetSettings(); // odkomentuj, żeby zawsze wymuszać portal WiFi
+    // wm.resetSettings(); // odkomentuj TYLKO gdy chcesz wymusić nowy portal WiFi
 
-    if (!wm.autoConnect("RobotAP")) {
+    if (!wm.autoConnect("bm-assistant")) {
         Serial.println("Nie udało się połączyć!");
         ESP.restart();
     }
@@ -401,7 +415,8 @@ void loop() {
     }
 
     // 2. Silniki skończyły — weź następną komendę z kolejki
-    if (isMoving && millis() >= actionEndTime) {
+    // (pomijamy jeśli tryb ciągły — czekamy wtedy na STOP)
+    if (isMoving && !continuous && millis() >= actionEndTime) {
         stopMotors();
         RobotCommand next;
         if (dequeueCommand(next)) {

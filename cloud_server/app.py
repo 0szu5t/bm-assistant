@@ -226,9 +226,10 @@ def api_command(code: str):
 
     data = request.json or {}
     cmd = data.get("cmd", "S")
+    value = int(data.get("value", 0))  # 0 = tryb ciągły, >0 = sekundy
     robot_cmd = CMD_MAP.get(cmd, cmd)
 
-    push_event(code, {"event": "robot_command", "data": {"command": robot_cmd, "value": 1}})
+    push_event(code, {"event": "robot_command", "data": {"command": robot_cmd, "value": value}})
     return jsonify({"status": "ok"})
 
 

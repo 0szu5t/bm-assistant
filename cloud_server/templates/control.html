@@ -367,12 +367,14 @@
     }
 
     // ---- Send command ----
-    async function sendCmd(cmd) {
+    // value=0 oznacza tryb ciągły (robot jedzie dopóki nie dostanie STOP)
+    // value>0 oznacza czas w sekundach
+    async function sendCmd(cmd, value = 0) {
         try {
             await fetch(`/api/command/${CODE}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cmd })
+                body: JSON.stringify({ cmd, value })
             });
         } catch (err) {
             log('⚠️ Błąd połączenia z serwerem', 'system');
@@ -380,18 +382,40 @@
     }
 
     // ---- D-pad buttons ----
+    // Przy naciśnięciu: wysyłaj cmd co REPEAT_MS (tryb ciągły, value=0)
+    // Przy puszczeniu: wyślij STOP
+    const REPEAT_MS = 150;
+    let holdInterval = null;
+    let currentHeldCmd = null;
+
+    function startHold(cmd) {
+        if (currentHeldCmd === cmd) return; // już trzymamy
+        stopHold();
+        currentHeldCmd = cmd;
+        sendCmd(cmd, 0); // natychmiast
+        if (cmd !== 'S' && cmd !== 'W') {
+            holdInterval = setInterval(() => sendCmd(cmd, 0), REPEAT_MS);
+        }
+    }
+
+    function stopHold() {
+        if (holdInterval) { clearInterval(holdInterval); holdInterval = null; }
+        currentHeldCmd = null;
+    }
+
     document.querySelectorAll('.ctrl-btn').forEach(btn => {
         const cmd = btn.dataset.cmd;
 
         const press = (e) => {
             e.preventDefault();
             btn.classList.add('pressed');
-            sendCmd(cmd);
+            startHold(cmd);
         };
         const release = (e) => {
             e.preventDefault();
             btn.classList.remove('pressed');
-            if (cmd !== 'S' && cmd !== 'W') sendCmd('S');
+            stopHold();
+            if (cmd !== 'S' && cmd !== 'W') sendCmd('S', 0);
         };
 
         btn.addEventListener('touchstart', press, { passive: false });
@@ -410,14 +434,30 @@
         'ArrowRight': 'R', 'd': 'R', 'D': 'R',
     };
     const heldKeys = new Set();
+    let keyHoldInterval = null;
+    let keyCurrentCmd = null;
+
+    function startKeyHold(cmd) {
+        if (keyCurrentCmd === cmd) return;
+        stopKeyHold();
+        keyCurrentCmd = cmd;
+        sendCmd(cmd, 0);
+        keyHoldInterval = setInterval(() => sendCmd(cmd, 0), REPEAT_MS);
+        document.getElementById(`btn-${cmd}`)?.classList.add('pressed');
+    }
+
+    function stopKeyHold() {
+        if (keyHoldInterval) { clearInterval(keyHoldInterval); keyHoldInterval = null; }
+        if (keyCurrentCmd) document.getElementById(`btn-${keyCurrentCmd}`)?.classList.remove('pressed');
+        keyCurrentCmd = null;
+    }
 
     document.addEventListener('keydown', (e) => {
         if (e.target === promptInput) return;
         const cmd = keyMap[e.key];
         if (cmd && !heldKeys.has(e.key)) {
             heldKeys.add(e.key);
-            sendCmd(cmd);
-            document.getElementById(`btn-${cmd}`)?.classList.add('pressed');
+            startKeyHold(cmd);
         }
     });
     document.addEventListener('keyup', (e) => {
@@ -425,8 +465,10 @@
         const cmd = keyMap[e.key];
         if (cmd) {
             heldKeys.delete(e.key);
-            if (heldKeys.size === 0) sendCmd('S');
-            document.getElementById(`btn-${cmd}`)?.classList.remove('pressed');
+            if (heldKeys.size === 0) {
+                stopKeyHold();
+                sendCmd('S', 0);
+            }
         }
     });
 
@@ -440,17 +482,33 @@
     });
 
     // ---- NippleJS joystick ----
+    let joyCmd = null;
+    let joyInterval = null;
+
+    function startJoy(cmd) {
+        if (joyCmd === cmd) return;
+        stopJoy();
+        joyCmd = cmd;
+        sendCmd(cmd, 0);
+        joyInterval = setInterval(() => sendCmd(cmd, 0), REPEAT_MS);
+    }
+
+    function stopJoy() {
+        if (joyInterval) { clearInterval(joyInterval); joyInterval = null; }
+        joyCmd = null;
+    }
+
     const manager = nipplejs.create({
         zone: document.getElementById('joystick-zone'),
         mode: 'dynamic',
         color: '#38bdf8',
         size: 130
     });
-    manager.on('dir:up',    () => sendCmd('F'));
-    manager.on('dir:down',  () => sendCmd('B'));
-    manager.on('dir:left',  () => sendCmd('L'));
-    manager.on('dir:right', () => sendCmd('R'));
-    manager.on('end',       () => sendCmd('S'));
+    manager.on('dir:up',    () => startJoy('F'));
+    manager.on('dir:down',  () => startJoy('B'));
+    manager.on('dir:left',  () => startJoy('L'));
+    manager.on('dir:right', () => startJoy('R'));
+    manager.on('end',       () => { stopJoy(); sendCmd('S', 0); });
 
     // ---- NVIDIA AI ----
     async function sendPrompt() {
