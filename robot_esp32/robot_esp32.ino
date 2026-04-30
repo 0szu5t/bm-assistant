@@ -15,7 +15,7 @@
 const char* SERVER_URL = "https://bm-assistant.vercel.app"; // BEZ slash na końcu!
 
 // Interwał pollowania (ms)
-const unsigned long POLL_INTERVAL = 500;
+const unsigned long POLL_INTERVAL = 250;
 
 // ============================================================
 // Silniki L298N
@@ -50,7 +50,7 @@ const int holdSpeed  = 100;
 const int kickTime   = 150;
 
 
-const int WHEEL_CORRECTION = 0;  // <-- !!!!!
+const int WHEEL_CORRECTION = -50;  // <-- !!!!!
 
 #define AUDIO_BUFFER_SIZE 32000
 volatile uint8_t audioBuffer[AUDIO_BUFFER_SIZE];
